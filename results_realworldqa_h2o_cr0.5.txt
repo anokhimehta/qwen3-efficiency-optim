@@ -1,0 +1,6 @@
+Accuracy          : 70/100 = 70.0%
+Avg prefill       : 541.4 ms
+Avg decode        : 69.4 ms
+Avg peak memory   : 9.16 GB
+Avg throughput    : 3.7 tok/s
+Avg image tokens  : 1306.6

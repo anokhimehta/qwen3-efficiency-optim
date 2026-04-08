@@ -15,8 +15,8 @@
 
 export HF_HOME=/scratch/am16455/hf_cache
 
-cd /scratch/am16455/project
+cd /scratch/am16455/qwen3-efficiency-optim
 
 singularity exec --nv --overlay /scratch/am16455/overlay.ext3 \
     /scratch/work/public/singularity/cuda12.2.2-cudnn8.9.4-devel-ubuntu22.04.3.sif \
-    /bin/bash -c "cd /scratch/am16455/project && python3 evaluate_realworldqa.py"
+    /bin/bash -c "cd /scratch/am16455/qwen3-efficiency-optim && python3 evaluate_realworldqa.py"
