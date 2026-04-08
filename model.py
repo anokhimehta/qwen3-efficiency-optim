@@ -3,6 +3,7 @@ import torch
 from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 
 def load_model():
+    # load model in bfloat16; device_map="auto" places layers across available GPUs/CPU
     model = Qwen3VLForConditionalGeneration.from_pretrained(
         "Qwen/Qwen3-VL-4B-Instruct",
         dtype=torch.bfloat16,
@@ -12,49 +13,59 @@ def load_model():
     model.eval()
     return model, processor
 
-def run_inference(model, processor, image, prompt, max_new_tokens=64):
+def run_inference(model, processor, image, prompt, max_new_tokens=64, press=None):
+    # format input as a chat turn with one image and one text message
     messages = [{"role": "user", "content": [
         {"type": "image", "image": image},
         {"type": "text", "text": prompt}
     ]}]
+
+    # tokenize and apply the model's chat template; returns a dict of tensors
     inputs = processor.apply_chat_template(
         messages, tokenize=True, add_generation_prompt=True,
         return_dict=True, return_tensors="pt"
     )
-    inputs.pop("token_type_ids", None)
+    inputs.pop("token_type_ids", None)  # Qwen3-VL doesn't use token type ids
     inputs = inputs.to(model.device)
 
-    # input sequence length
     input_seq_len = inputs["input_ids"].shape[1]
 
-    # number of image tokens
+    # count image tokens by matching against the model's special image token id
     num_image_tokens = (inputs["input_ids"] == model.config.image_token_id).sum().item()
 
-    # reset memory stats
     torch.cuda.reset_peak_memory_stats()
 
     start = torch.cuda.Event(enable_timing=True)
     end   = torch.cuda.Event(enable_timing=True)
 
-    # prefill latency (max_new_tokens=1)
+    # prefill pass: generate exactly 1 token to isolate prefill latency
     start.record()
     with torch.no_grad():
-        _ = model.generate(**inputs, max_new_tokens=1, do_sample=False)
+        if press is not None:
+            with press(model):  # apply KV cache compression if provided
+                _ = model.generate(**inputs, max_new_tokens=1, do_sample=False)
+        else:
+            _ = model.generate(**inputs, max_new_tokens=1, do_sample=False)
     end.record()
     torch.cuda.synchronize()
     prefill_ms = start.elapsed_time(end)
 
-    # full generation
+    # full generation pass
     start.record()
     with torch.no_grad():
-        outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        if press is not None:
+            with press(model):
+                outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
+        else:
+            outputs = model.generate(**inputs, max_new_tokens=max_new_tokens, do_sample=False)
     end.record()
     torch.cuda.synchronize()
     full_ms = start.elapsed_time(end)
 
     peak_mem_gb = torch.cuda.max_memory_allocated() / 1e9
-    decode_ms   = max(0.0, full_ms - prefill_ms)
+    decode_ms   = max(0.0, full_ms - prefill_ms)  # decode = full - prefill
 
+    # strip the input tokens from the output to get only the generated tokens
     trimmed = [out[len(inp):] for inp, out in zip(inputs.input_ids, outputs)]
     prediction  = processor.batch_decode(
         trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False

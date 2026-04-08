@@ -2,9 +2,11 @@
 import re
 from datasets import load_dataset
 from model import load_model, run_inference
+from methods.h2o import get_press
 
 model, processor = load_model()
 ds = load_dataset("xai-org/RealworldQA", split="test")
+press = get_press(compression_ratio=0.5)  # initialize the KV cache compression method
 
 correct_count    = 0
 total            = 0
@@ -27,11 +29,13 @@ def is_correct(prediction, correct):
         return correct.lower() in prediction.lower()
 
 for sample in ds:
+    if total >= 100:  # limit to first 100 samples for quick evaluation
+        break
     image    = sample["image"]
     question = sample["question"]
     correct  = sample["answer"]
 
-    prediction, metrics = run_inference(model, processor, image, question, max_new_tokens=16)
+    prediction, metrics = run_inference(model, processor, image, question, max_new_tokens=16, press=press)
     predicted_letter = extract_letter(prediction)
 
     total_prefill    += metrics["prefill_ms"]
@@ -53,7 +57,7 @@ print(f"Avg peak memory   : {total_mem/total:.2f} GB")
 print(f"Avg throughput    : {total_throughput/total:.1f} tok/s")
 print(f"Avg image tokens  : {total_img_tokens/total:.1f}")
 
-with open("results_realworldqa.txt", "w") as f:
+with open("results_realworldqa_h2o_cr0.5.txt", "w") as f:
     f.write(f"Accuracy          : {correct_count}/{total} = {correct_count/total*100:.1f}%\n")
     f.write(f"Avg prefill       : {total_prefill/total:.1f} ms\n")
     f.write(f"Avg decode        : {total_decode/total:.1f} ms\n")
