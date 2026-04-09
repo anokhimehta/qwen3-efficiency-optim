@@ -29,8 +29,6 @@ def is_correct(prediction, correct):
         return correct.lower() in prediction.lower()
 
 for sample in ds:
-    if total >= 100:
-        break
     image    = sample["image"]
     question = sample["question"]
     correct  = sample["answer"]
