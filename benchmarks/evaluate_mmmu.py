@@ -1,74 +1,119 @@
-# evaluate_mmmu.py
+import argparse
 import ast
+import importlib
+import json
+import os
 import re
-from datasets import load_dataset, concatenate_datasets
+
+from datasets import concatenate_datasets, load_dataset
 from model import load_model, run_inference
 
-model, processor = load_model()
 
-subjects = [
-    'Accounting', 'Agriculture', 'Architecture_and_Engineering', 'Art', 'Art_Theory',
-    'Basic_Medical_Science', 'Biology', 'Chemistry', 'Clinical_Medicine', 'Computer_Science',
-    'Design', 'Diagnostics_and_Laboratory_Medicine', 'Economics', 'Electronics',
-    'Energy_and_Power', 'Finance', 'Geography', 'History', 'Literature', 'Manage',
-    'Marketing', 'Materials', 'Math', 'Mechanical_Engineering', 'Music', 'Pharmacy',
-    'Physics', 'Psychology', 'Public_Health', 'Sociology'
-]
+def parse_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--method", default=None, help="methods module name, e.g. h2o or stratified_eviction")
+    p.add_argument("--compression_ratio", type=float, default=0.5)
+    p.add_argument("--vision_weight", type=float, default=0.2)
+    return p.parse_args()
 
-all_splits = [load_dataset("MMMU/MMMU", subject, split="validation") for subject in subjects]
-ds = concatenate_datasets(all_splits)
-print(f"Total samples: {len(ds)}")
-
-correct_count    = 0
-total            = 0
-total_prefill    = 0
-total_decode     = 0
-total_mem        = 0
-total_throughput = 0
-total_img_tokens = 0
 
 def extract_letter(text):
     match = re.search(r'\b([A-E])\b', text.upper())
     return match.group(1) if match else text[0].upper() if text else ""
 
-for sample in ds:
-    image = sample["image_1"]
-    if image is None:
-        continue
 
-    question = sample["question"].replace("<image 1>", "").strip()
-    options  = ast.literal_eval(sample["options"])
-    correct  = sample["answer"]
+def main():
+    args = parse_args()
 
-    lettered = "\n".join([f"{chr(65+i)}. {opt}" for i, opt in enumerate(options)])
-    prompt   = f"{question}\n\n{lettered}\n\nAnswer with a single letter only."
+    if args.method is not None:
+        mod = importlib.import_module(f"methods.{args.method}")
+        press = mod.get_press(compression_ratio=args.compression_ratio, vision_weight=args.vision_weight)
+    else:
+        press = None
 
-    prediction, metrics = run_inference(model, processor, image, prompt, max_new_tokens=16)
-    predicted_letter = extract_letter(prediction)
+    model, processor = load_model()
 
-    total_prefill    += metrics["prefill_ms"]
-    total_decode     += metrics["decode_ms"]
-    total_mem        += metrics["peak_mem_gb"]
-    total_throughput += metrics["throughput_tokps"]
-    total_img_tokens += metrics["num_image_tokens"]
+    subjects = [
+        'Accounting', 'Agriculture', 'Architecture_and_Engineering', 'Art', 'Art_Theory',
+        'Basic_Medical_Science', 'Biology', 'Chemistry', 'Clinical_Medicine', 'Computer_Science',
+        'Design', 'Diagnostics_and_Laboratory_Medicine', 'Economics', 'Electronics',
+        'Energy_and_Power', 'Finance', 'Geography', 'History', 'Literature', 'Manage',
+        'Marketing', 'Materials', 'Math', 'Mechanical_Engineering', 'Music', 'Pharmacy',
+        'Physics', 'Psychology', 'Public_Health', 'Sociology'
+    ]
+    all_splits = [load_dataset("MMMU/MMMU", subject, split="validation") for subject in subjects]
+    ds = concatenate_datasets(all_splits)
+    print(f"Total samples: {len(ds)}")
 
-    is_correct = predicted_letter == correct.upper()
-    correct_count += is_correct
-    total += 1
+    correct_count    = 0
+    total            = 0
+    total_prefill    = 0
+    total_decode     = 0
+    total_mem        = 0
+    total_throughput = 0
+    total_img_tokens = 0
 
-    print(f"[{total}] Predicted: {predicted_letter} | Correct: {correct} | {'✓' if is_correct else '✗'}")
+    for sample in ds:
+        image = sample["image_1"]
+        if image is None:
+            continue
 
-print(f"\nAccuracy          : {correct_count}/{total} = {correct_count/total*100:.1f}%")
-print(f"Avg prefill       : {total_prefill/total:.1f} ms")
-print(f"Avg decode        : {total_decode/total:.1f} ms")
-print(f"Avg peak memory   : {total_mem/total:.2f} GB")
-print(f"Avg throughput    : {total_throughput/total:.1f} tok/s")
-print(f"Avg image tokens  : {total_img_tokens/total:.1f}")
+        question = sample["question"].replace("<image 1>", "").strip()
+        options  = ast.literal_eval(sample["options"])
+        correct  = sample["answer"]
 
-with open("results_mmmu.txt", "w") as f:
-    f.write(f"Accuracy          : {correct_count}/{total} = {correct_count/total*100:.1f}%\n")
-    f.write(f"Avg prefill       : {total_prefill/total:.1f} ms\n")
-    f.write(f"Avg decode        : {total_decode/total:.1f} ms\n")
-    f.write(f"Avg peak memory   : {total_mem/total:.2f} GB\n")
-    f.write(f"Avg throughput    : {total_throughput/total:.1f} tok/s\n")
-    f.write(f"Avg image tokens  : {total_img_tokens/total:.1f}\n")
+        lettered = "\n".join([f"{chr(65+i)}. {opt}" for i, opt in enumerate(options)])
+        prompt   = f"{question}\n\n{lettered}\n\nAnswer with a single letter only."
+
+        prediction, metrics = run_inference(model, processor, image, prompt, max_new_tokens=16, press=press)
+        predicted_letter = extract_letter(prediction)
+
+        total_prefill    += metrics["prefill_ms"]
+        total_decode     += metrics["decode_ms"]
+        total_mem        += metrics["peak_mem_gb"]
+        total_throughput += metrics["throughput_tokps"]
+        total_img_tokens += metrics["num_image_tokens"]
+
+        correct_flag = predicted_letter == correct.upper()
+        correct_count += correct_flag
+        total += 1
+
+        print(f"[{total}] Predicted: {predicted_letter} | Correct: {correct} | {'✓' if correct_flag else '✗'}")
+
+    accuracy = correct_count / total * 100
+    print(f"\nAccuracy          : {correct_count}/{total} = {accuracy:.1f}%")
+    print(f"Avg prefill       : {total_prefill/total:.1f} ms")
+    print(f"Avg decode        : {total_decode/total:.1f} ms")
+    print(f"Avg peak memory   : {total_mem/total:.2f} GB")
+    print(f"Avg throughput    : {total_throughput/total:.1f} tok/s")
+    print(f"Avg image tokens  : {total_img_tokens/total:.1f}")
+
+    method_tag = args.method or "baseline"
+    tag = f"{method_tag}_cr{args.compression_ratio}"
+    if args.method == "stratified_eviction":
+        tag += f"_vw{args.vision_weight}"
+    if args.method is None:
+        tag = "baseline"
+
+    os.makedirs("results", exist_ok=True)
+    out_path = os.path.join("results", f"mmmu_{tag}.json")
+    with open(out_path, "w") as f:
+        json.dump({
+            "benchmark":         "mmmu",
+            "method":            args.method,
+            "compression_ratio": args.compression_ratio,
+            "vision_weight":     args.vision_weight if args.method == "stratified_eviction" else None,
+            "accuracy":          accuracy,
+            "correct":           correct_count,
+            "total":             total,
+            "avg_prefill_ms":    total_prefill / total,
+            "avg_decode_ms":     total_decode / total,
+            "avg_peak_mem_gb":   total_mem / total,
+            "avg_throughput":    total_throughput / total,
+            "avg_img_tokens":    total_img_tokens / total,
+        }, f, indent=2)
+    print(f"\nResults saved to {out_path}")
+
+
+if __name__ == "__main__":
+    main()
