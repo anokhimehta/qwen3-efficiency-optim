@@ -19,7 +19,7 @@
 
 export HF_HOME=/scratch/am16455/hf_cache
 
-CRS=(0.3 0.4 0.5 0.6 0.7 0.8 0.9)
+CRS=(0.1 0.2 0.3 0.5 0.7)
 CR=${CRS[$SLURM_ARRAY_TASK_ID]}
 
 singularity exec --nv --overlay /scratch/am16455/overlay.ext3 \
