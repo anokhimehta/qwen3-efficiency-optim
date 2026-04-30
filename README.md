@@ -1,7 +1,7 @@
 # Modality-Stratified KV Cache Eviction for Vision-Language Models
 
 **ECE GY 9143 — Anokhi Mehta (am16455)**  
-NYU Greene · NVIDIA A100 40GB · `kvpress 0.5.3` / `transformers 4.45` / `torch 2.4.1`  
+NYU Greene · `c12m85-a100-1` · NVIDIA A100 40GB · `kvpress 0.5.3` / `transformers 4.45` / `torch 2.4.1`  
 Model: `Qwen/Qwen3-VL-4B-Instruct`
 
 ---
@@ -77,7 +77,7 @@ Visual token positions are identified via `image_grid_thw` from the model's kwar
 | **Vision weights** | 0.2, 0.3, 0.5 |
 | **Datasets** | DocVQA (5,349), MathVista (1,000), MMMU (900), RealWorldQA (765) |
 | **Total samples** | 8,014 (full datasets) |
-| **Hardware** | NYU Greene `g2-standard-12` |
+| **Hardware** | NYU Greene `c12m85-a100-1` (NVIDIA A100 40GB, 60 GB RAM) |
 
 ---
 
